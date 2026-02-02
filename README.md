@@ -166,7 +166,7 @@ src/
 
 ## Testing
 
-182개 테스트 전체 통과. 모든 외부 서비스는 mock 처리되어 Docker 없이 실행 가능합니다.
+194개 테스트 전체 통과. 모든 외부 서비스는 mock 처리되어 Docker 없이 실행 가능합니다.
 
 ```bash
 # 전체 테스트
@@ -184,12 +184,12 @@ poetry run pytest --cov=src --cov-report=term-missing
 | Category | Tests | Coverage |
 |----------|-------|----------|
 | Data Layer (InfluxDB, Neo4j, Milvus, PostgreSQL) | 45 | Repositories |
-| LLM / Embedding | 18 | Client fallback, streaming, caching |
+| LLM / Embedding / Fallback | 30 | Client fallback, retry, streaming, caching |
 | Agents (Retriever, Extractor, Reasoner, Validator, Planner) | 48 | Agent logic |
 | Reasoning (GraphRAG, Self-RAG, CoT) | 22 | Reasoning engines |
 | Integration API | 13 | HTTP endpoints |
 | Contract / OpenAPI | 29 | Spec compliance |
-| **Total** | **182** | |
+| **Total** | **194** | |
 
 ## Deployment
 

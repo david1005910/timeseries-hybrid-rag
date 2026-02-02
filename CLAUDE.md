@@ -46,7 +46,7 @@ poetry run python scripts/seed_data.py
 - Korean docstrings for domain-specific modules
 
 ## Testing
-- 182 tests total (unit + integration + contract)
+- 194 tests total (unit + integration + contract)
 - All external services mocked (no Docker needed for tests)
 - pytest-asyncio for async test support
 - aiosqlite for in-memory DB tests (SessionRepository)
