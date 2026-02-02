@@ -252,6 +252,359 @@ class TestLLMClient:
         assert collected == chunks_text
 
 
+class TestLLMFallback:
+    """LLM fallback: Anthropic → OpenAI edge cases and retry behaviour."""
+
+    @patch("src.llm.client.get_settings")
+    @patch("src.llm.client.openai.AsyncOpenAI")
+    @patch("src.llm.client.anthropic.AsyncAnthropic")
+    async def test_both_providers_fail_raises_retry_error(
+        self,
+        mock_anthropic_cls: MagicMock,
+        mock_openai_cls: MagicMock,
+        mock_get_settings: MagicMock,
+    ) -> None:
+        """When both Anthropic and OpenAI fail, tenacity retries then raises RetryError."""
+        mock_get_settings.return_value = _make_settings(
+            anthropic_api_key="sk-ant-test", openai_api_key="sk-oai-test"
+        )
+
+        mock_ant = MagicMock()
+        mock_ant.messages.create = AsyncMock(side_effect=Exception("Anthropic down"))
+        mock_anthropic_cls.return_value = mock_ant
+
+        mock_oai = MagicMock()
+        mock_oai.chat.completions.create = AsyncMock(side_effect=Exception("OpenAI down"))
+        mock_openai_cls.return_value = mock_oai
+
+        client = LLMClient()
+        with pytest.raises(RetryError):
+            await client.generate(prompt="both fail")
+
+    @patch("src.llm.client.get_settings")
+    @patch("src.llm.client.openai.AsyncOpenAI")
+    @patch("src.llm.client.anthropic.AsyncAnthropic")
+    async def test_retry_count_on_both_fail(
+        self,
+        mock_anthropic_cls: MagicMock,
+        mock_openai_cls: MagicMock,
+        mock_get_settings: MagicMock,
+    ) -> None:
+        """Both providers failing should trigger exactly 3 retry attempts."""
+        mock_get_settings.return_value = _make_settings(
+            anthropic_api_key="sk-ant-test", openai_api_key="sk-oai-test"
+        )
+
+        mock_ant = MagicMock()
+        mock_ant.messages.create = AsyncMock(side_effect=Exception("Anthropic error"))
+        mock_anthropic_cls.return_value = mock_ant
+
+        mock_oai = MagicMock()
+        mock_oai.chat.completions.create = AsyncMock(side_effect=Exception("OpenAI error"))
+        mock_openai_cls.return_value = mock_oai
+
+        client = LLMClient()
+        with pytest.raises(RetryError):
+            await client.generate(prompt="retry count test")
+
+        # Anthropic called 3 times (once per retry attempt)
+        assert mock_ant.messages.create.await_count == 3
+        # OpenAI called 3 times (fallback on each attempt)
+        assert mock_oai.chat.completions.create.await_count == 3
+
+    @patch("src.llm.client.get_settings")
+    @patch("src.llm.client.openai.AsyncOpenAI")
+    @patch("src.llm.client.anthropic.AsyncAnthropic")
+    async def test_fallback_on_anthropic_api_error(
+        self,
+        mock_anthropic_cls: MagicMock,
+        mock_openai_cls: MagicMock,
+        mock_get_settings: MagicMock,
+        mock_openai_response: MagicMock,
+    ) -> None:
+        """Anthropic APIError should trigger fallback to OpenAI."""
+        import anthropic as anthropic_mod
+
+        mock_get_settings.return_value = _make_settings(
+            anthropic_api_key="sk-ant-test", openai_api_key="sk-oai-test"
+        )
+
+        mock_ant = MagicMock()
+        mock_ant.messages.create = AsyncMock(
+            side_effect=anthropic_mod.APIConnectionError(request=MagicMock())
+        )
+        mock_anthropic_cls.return_value = mock_ant
+
+        mock_oai = MagicMock()
+        mock_oai.chat.completions.create = AsyncMock(return_value=mock_openai_response)
+        mock_openai_cls.return_value = mock_oai
+
+        client = LLMClient()
+        result = await client.generate(prompt="API error fallback")
+
+        assert result.provider == "openai"
+        mock_oai.chat.completions.create.assert_awaited_once()
+
+    @patch("src.llm.client.get_settings")
+    @patch("src.llm.client.openai.AsyncOpenAI")
+    @patch("src.llm.client.anthropic.AsyncAnthropic")
+    async def test_fallback_on_anthropic_rate_limit(
+        self,
+        mock_anthropic_cls: MagicMock,
+        mock_openai_cls: MagicMock,
+        mock_get_settings: MagicMock,
+        mock_openai_response: MagicMock,
+    ) -> None:
+        """Anthropic RateLimitError should trigger fallback to OpenAI."""
+        import anthropic as anthropic_mod
+
+        mock_get_settings.return_value = _make_settings(
+            anthropic_api_key="sk-ant-test", openai_api_key="sk-oai-test"
+        )
+
+        mock_response = MagicMock()
+        mock_response.status_code = 429
+        mock_response.headers = {}
+
+        mock_ant = MagicMock()
+        mock_ant.messages.create = AsyncMock(
+            side_effect=anthropic_mod.RateLimitError(
+                message="rate limited", response=mock_response, body=None
+            )
+        )
+        mock_anthropic_cls.return_value = mock_ant
+
+        mock_oai = MagicMock()
+        mock_oai.chat.completions.create = AsyncMock(return_value=mock_openai_response)
+        mock_openai_cls.return_value = mock_oai
+
+        client = LLMClient()
+        result = await client.generate(prompt="rate limit test")
+
+        assert result.provider == "openai"
+        assert result.content == "OpenAI 응답 텍스트"
+
+    @patch("src.llm.client.get_settings")
+    @patch("src.llm.client.openai.AsyncOpenAI")
+    async def test_openai_only_no_anthropic(
+        self,
+        mock_openai_cls: MagicMock,
+        mock_get_settings: MagicMock,
+        mock_openai_response: MagicMock,
+    ) -> None:
+        """When only OpenAI is configured, it should be used directly without fallback."""
+        mock_get_settings.return_value = _make_settings(openai_api_key="sk-oai-test")
+
+        mock_oai = MagicMock()
+        mock_oai.chat.completions.create = AsyncMock(return_value=mock_openai_response)
+        mock_openai_cls.return_value = mock_oai
+
+        client = LLMClient()
+        result = await client.generate(prompt="direct openai")
+
+        assert result.provider == "openai"
+        assert result.model == "gpt-4o"
+        mock_oai.chat.completions.create.assert_awaited_once()
+
+    @patch("src.llm.client.get_settings")
+    @patch("src.llm.client.openai.AsyncOpenAI")
+    @patch("src.llm.client.anthropic.AsyncAnthropic")
+    async def test_fallback_preserves_parameters(
+        self,
+        mock_anthropic_cls: MagicMock,
+        mock_openai_cls: MagicMock,
+        mock_get_settings: MagicMock,
+        mock_openai_response: MagicMock,
+    ) -> None:
+        """Fallback should forward temperature, max_tokens, system_prompt to OpenAI."""
+        mock_get_settings.return_value = _make_settings(
+            anthropic_api_key="sk-ant-test", openai_api_key="sk-oai-test"
+        )
+
+        mock_ant = MagicMock()
+        mock_ant.messages.create = AsyncMock(side_effect=Exception("Anthropic error"))
+        mock_anthropic_cls.return_value = mock_ant
+
+        mock_oai = MagicMock()
+        mock_oai.chat.completions.create = AsyncMock(return_value=mock_openai_response)
+        mock_openai_cls.return_value = mock_oai
+
+        client = LLMClient()
+        await client.generate(
+            prompt="param test",
+            system_prompt="system msg",
+            temperature=0.7,
+            max_tokens=2048,
+        )
+
+        call_kwargs = mock_oai.chat.completions.create.call_args.kwargs
+        assert call_kwargs["temperature"] == 0.7
+        assert call_kwargs["max_tokens"] == 2048
+        messages = call_kwargs["messages"]
+        assert messages[0] == {"role": "system", "content": "system msg"}
+        assert messages[1] == {"role": "user", "content": "param test"}
+
+    @patch("src.llm.client.get_settings")
+    @patch("src.llm.client.openai.AsyncOpenAI")
+    @patch("src.llm.client.anthropic.AsyncAnthropic")
+    async def test_fallback_preserves_custom_model(
+        self,
+        mock_anthropic_cls: MagicMock,
+        mock_openai_cls: MagicMock,
+        mock_get_settings: MagicMock,
+        mock_openai_response: MagicMock,
+    ) -> None:
+        """Custom model parameter should be forwarded through fallback."""
+        mock_get_settings.return_value = _make_settings(
+            anthropic_api_key="sk-ant-test", openai_api_key="sk-oai-test"
+        )
+
+        mock_ant = MagicMock()
+        mock_ant.messages.create = AsyncMock(side_effect=Exception("fail"))
+        mock_anthropic_cls.return_value = mock_ant
+
+        mock_oai = MagicMock()
+        mock_oai.chat.completions.create = AsyncMock(return_value=mock_openai_response)
+        mock_openai_cls.return_value = mock_oai
+
+        client = LLMClient()
+        result = await client.generate(prompt="custom model", model="gpt-4-turbo")
+
+        call_kwargs = mock_oai.chat.completions.create.call_args.kwargs
+        assert call_kwargs["model"] == "gpt-4-turbo"
+        assert result.model == "gpt-4-turbo"
+
+    @patch("src.llm.client.get_settings")
+    @patch("src.llm.client.openai.AsyncOpenAI")
+    @patch("src.llm.client.anthropic.AsyncAnthropic")
+    async def test_fallback_response_has_elapsed_ms(
+        self,
+        mock_anthropic_cls: MagicMock,
+        mock_openai_cls: MagicMock,
+        mock_get_settings: MagicMock,
+        mock_openai_response: MagicMock,
+    ) -> None:
+        """Fallback response should still have elapsed_ms set."""
+        mock_get_settings.return_value = _make_settings(
+            anthropic_api_key="sk-ant-test", openai_api_key="sk-oai-test"
+        )
+
+        mock_ant = MagicMock()
+        mock_ant.messages.create = AsyncMock(side_effect=Exception("fail"))
+        mock_anthropic_cls.return_value = mock_ant
+
+        mock_oai = MagicMock()
+        mock_oai.chat.completions.create = AsyncMock(return_value=mock_openai_response)
+        mock_openai_cls.return_value = mock_oai
+
+        client = LLMClient()
+        result = await client.generate(prompt="elapsed test")
+
+        assert result.elapsed_ms >= 0
+
+    @patch("src.llm.client.get_settings")
+    @patch("src.llm.client.openai.AsyncOpenAI")
+    @patch("src.llm.client.anthropic.AsyncAnthropic")
+    async def test_anthropic_success_does_not_call_openai(
+        self,
+        mock_anthropic_cls: MagicMock,
+        mock_openai_cls: MagicMock,
+        mock_get_settings: MagicMock,
+        mock_anthropic_response: MagicMock,
+    ) -> None:
+        """When Anthropic succeeds, OpenAI should never be called."""
+        mock_get_settings.return_value = _make_settings(
+            anthropic_api_key="sk-ant-test", openai_api_key="sk-oai-test"
+        )
+
+        mock_ant = MagicMock()
+        mock_ant.messages.create = AsyncMock(return_value=mock_anthropic_response)
+        mock_anthropic_cls.return_value = mock_ant
+
+        mock_oai = MagicMock()
+        mock_oai.chat.completions.create = AsyncMock()
+        mock_openai_cls.return_value = mock_oai
+
+        client = LLMClient()
+        result = await client.generate(prompt="anthropic ok")
+
+        assert result.provider == "anthropic"
+        mock_oai.chat.completions.create.assert_not_awaited()
+
+    @patch("src.llm.client.get_settings")
+    @patch("src.llm.client.openai.AsyncOpenAI")
+    async def test_openai_only_fails_raises_retry_error(
+        self,
+        mock_openai_cls: MagicMock,
+        mock_get_settings: MagicMock,
+    ) -> None:
+        """When only OpenAI is configured and it fails, should raise RetryError."""
+        mock_get_settings.return_value = _make_settings(openai_api_key="sk-oai-test")
+
+        mock_oai = MagicMock()
+        mock_oai.chat.completions.create = AsyncMock(side_effect=Exception("OpenAI error"))
+        mock_openai_cls.return_value = mock_oai
+
+        client = LLMClient()
+        with pytest.raises(RetryError):
+            await client.generate(prompt="openai only fails")
+
+        # Retried 3 times
+        assert mock_oai.chat.completions.create.await_count == 3
+
+    @patch("src.llm.client.get_settings")
+    async def test_generate_stream_no_provider_raises(
+        self,
+        mock_get_settings: MagicMock,
+    ) -> None:
+        """generate_stream() with no provider should yield nothing."""
+        mock_get_settings.return_value = _make_settings()
+
+        client = LLMClient()
+        collected: list[str] = []
+        async for text in client.generate_stream(prompt="no provider stream"):
+            collected.append(text)
+
+        assert collected == []
+
+    @patch("src.llm.client.get_settings")
+    @patch("src.llm.client.openai.AsyncOpenAI")
+    @patch("src.llm.client.anthropic.AsyncAnthropic")
+    async def test_openai_none_usage_handled(
+        self,
+        mock_anthropic_cls: MagicMock,
+        mock_openai_cls: MagicMock,
+        mock_get_settings: MagicMock,
+    ) -> None:
+        """OpenAI response with None usage should default to 0 tokens."""
+        mock_get_settings.return_value = _make_settings(
+            anthropic_api_key="sk-ant-test", openai_api_key="sk-oai-test"
+        )
+
+        mock_ant = MagicMock()
+        mock_ant.messages.create = AsyncMock(side_effect=Exception("fail"))
+        mock_anthropic_cls.return_value = mock_ant
+
+        message = MagicMock()
+        message.content = "response"
+        choice = MagicMock()
+        choice.message = message
+        response = MagicMock()
+        response.choices = [choice]
+        response.usage = None  # No usage data
+
+        mock_oai = MagicMock()
+        mock_oai.chat.completions.create = AsyncMock(return_value=response)
+        mock_openai_cls.return_value = mock_oai
+
+        client = LLMClient()
+        result = await client.generate(prompt="no usage")
+
+        assert result.input_tokens == 0
+        assert result.output_tokens == 0
+        assert result.total_tokens == 0
+
+
 class TestLLMResponse:
     """LLMResponse data class properties."""
 
