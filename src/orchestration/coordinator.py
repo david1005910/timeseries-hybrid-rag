@@ -221,17 +221,38 @@ class AgentCoordinator:
 
         warnings = verification.warnings if hasattr(verification, "warnings") else []
 
+        # Normalize causal_chain: LLM may return strings or dicts
+        raw_chain = reason_result.data.get("causal_chain", [])
+        graph_path = self._normalize_causal_chain(raw_chain)
+
         return QueryResponse(
             id=query_id,
             answer=final_answer,
             confidence=final_confidence,
             reasoning_chain=reasoning_chain,
             sources=sources,
-            graph_path=reason_result.data.get("causal_chain", []),
+            graph_path=graph_path,
             processing_time_ms=round(processing_time, 2),
             session_id=session_id,
             warnings=warnings,
         )
+
+    @staticmethod
+    def _normalize_causal_chain(chain: list[Any]) -> list[dict[str, Any]]:
+        """causal_chain 항목을 dict로 정규화.
+
+        LLM이 문자열("A → B")이나 dict를 반환할 수 있으므로
+        일관된 dict 형태로 변환한다.
+        """
+        result: list[dict[str, Any]] = []
+        for item in chain:
+            if isinstance(item, dict):
+                result.append(item)
+            elif isinstance(item, str):
+                result.append({"description": item})
+            else:
+                result.append({"description": str(item)})
+        return result
 
     @staticmethod
     def _get_retrieval_params(steps: list[dict[str, Any]]) -> dict[str, Any]:

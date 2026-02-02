@@ -159,23 +159,28 @@ class LLMClient:
         max_tokens: int = 4096,
         temperature: float = 0.3,
     ) -> AsyncIterator[str]:
-        """스트리밍 응답 생성."""
+        """스트리밍 응답 생성. Anthropic 실패 시 OpenAI로 fallback."""
         if self._anthropic:
-            model_name = "claude-sonnet-4-20250514"
-            messages = [{"role": "user", "content": prompt}]
-            kwargs: dict[str, Any] = {
-                "model": model_name,
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-                "messages": messages,
-            }
-            if system_prompt:
-                kwargs["system"] = system_prompt
+            try:
+                model_name = "claude-sonnet-4-20250514"
+                messages = [{"role": "user", "content": prompt}]
+                kwargs: dict[str, Any] = {
+                    "model": model_name,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                    "messages": messages,
+                }
+                if system_prompt:
+                    kwargs["system"] = system_prompt
 
-            async with self._anthropic.messages.stream(**kwargs) as stream:
-                async for text in stream.text_stream:
-                    yield text
-        elif self._openai:
+                async with self._anthropic.messages.stream(**kwargs) as stream:
+                    async for text in stream.text_stream:
+                        yield text
+                return
+            except Exception as e:
+                logger.warning("anthropic_stream_failed", error=str(e))
+
+        if self._openai:
             messages_list: list[dict[str, str]] = []
             if system_prompt:
                 messages_list.append({"role": "system", "content": system_prompt})
