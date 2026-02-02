@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install Poetry
+        run: pip install poetry
+
+      - name: Install dependencies
+        run: poetry install
+
+      - name: Run linting
+        run: poetry run ruff check src/ tests/
+        continue-on-error: true
+
+      - name: Run type checking
+        run: poetry run mypy src/ --ignore-missing-imports
+        continue-on-error: true
+
+      - name: Run tests
+        run: poetry run pytest --cov=src --cov-report=xml --cov-report=term-missing
+        env:
+          APP_ENV: test
+          DATABASE_URL: sqlite+aiosqlite:///test.db
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+        continue-on-error: true
