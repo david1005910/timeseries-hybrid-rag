@@ -2,6 +2,45 @@ version: "3.9"
 
 services:
   # ---------------------------------------------------------------------------
+  # Hybrid RAG Application
+  # ---------------------------------------------------------------------------
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: hybrid-rag-app
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - ../.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://hybrid_rag:hybrid_rag_pass@postgres:5432/hybrid_rag
+      INFLUXDB_URL: http://influxdb:8086
+      NEO4J_URI: bolt://neo4j:7687
+      MILVUS_HOST: milvus-standalone
+      REDIS_URL: redis://redis:6379/0
+    networks:
+      - hybrid-rag-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+      milvus-standalone:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+  # ---------------------------------------------------------------------------
   # PostgreSQL 15 - Relational metadata store
   # ---------------------------------------------------------------------------
   postgres:

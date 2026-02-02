@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: hybrid-rag-api
+  namespace: hybrid-rag
+  labels:
+    app: hybrid-rag
+    component: api
+spec:
+  type: ClusterIP
+  selector:
+    app: hybrid-rag
+    component: api
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
