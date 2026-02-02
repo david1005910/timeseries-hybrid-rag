@@ -4,8 +4,12 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from src.api.middleware.logging import RequestLoggingMiddleware
 from src.api.middleware.rate_limit import RateLimitMiddleware
@@ -67,6 +71,14 @@ def create_app() -> FastAPI:
 
     # WebSocket
     app.include_router(ws_router)
+
+    # Root redirect and static files
+    @app.get("/")
+    async def root():
+        return RedirectResponse(url="/static/index.html")
+
+    static_dir = Path(__file__).parent / "static"
+    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
     return app
 

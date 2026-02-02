@@ -1,0 +1,995 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hybrid RAG System</title>
+<style>
+:root {
+  --bg: #0f1117;
+  --surface: #1a1d27;
+  --surface2: #242837;
+  --border: #2e3348;
+  --text: #e1e4ed;
+  --text2: #8b90a0;
+  --accent: #6c8cff;
+  --accent2: #4a6adf;
+  --green: #4ade80;
+  --yellow: #facc15;
+  --red: #f87171;
+  --orange: #fb923c;
+  --radius: 8px;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+}
+
+header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+header h1 {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+header h1 span { color: var(--accent); }
+
+.ws-status {
+  font-size: 12px;
+  color: var(--text2);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ws-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--red);
+}
+
+.ws-dot.connected { background: var(--green); }
+
+nav {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  padding: 0 24px;
+}
+
+nav button {
+  background: none;
+  border: none;
+  color: var(--text2);
+  padding: 10px 20px;
+  font-size: 14px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+}
+
+nav button:hover { color: var(--text); }
+nav button.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+.tab { display: none; padding: 24px; max-width: 960px; margin: 0 auto; }
+.tab.active { display: block; }
+
+/* Query Tab */
+.query-input-area {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.query-input-area textarea {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  padding: 12px;
+  font-size: 14px;
+  resize: vertical;
+  min-height: 48px;
+  max-height: 150px;
+  font-family: inherit;
+}
+
+.query-input-area textarea:focus { outline: none; border-color: var(--accent); }
+
+.query-input-area button {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  padding: 0 24px;
+  font-size: 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  align-self: flex-end;
+  height: 48px;
+}
+
+.query-input-area button:hover { background: var(--accent2); }
+.query-input-area button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.progress-area {
+  margin-bottom: 20px;
+  display: none;
+}
+
+.progress-area.active { display: block; }
+
+.progress-steps {
+  display: flex;
+  gap: 12px;
+}
+
+.step-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text2);
+}
+
+.step-item.active { color: var(--accent); }
+.step-item.done { color: var(--green); }
+
+.step-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+}
+
+.step-item.active .step-dot {
+  background: var(--accent);
+  animation: pulse 1s infinite;
+}
+
+.step-item.done .step-dot { background: var(--green); }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.result-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-bottom: 16px;
+}
+
+.result-card h3 {
+  font-size: 14px;
+  color: var(--text2);
+  margin-bottom: 10px;
+}
+
+.answer-text {
+  font-size: 15px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.confidence-bar-container {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.confidence-bar {
+  flex: 1;
+  height: 6px;
+  background: var(--surface2);
+  border-radius: 3px;
+  overflow: hidden;
+  max-width: 200px;
+}
+
+.confidence-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.5s;
+}
+
+.confidence-label {
+  font-size: 13px;
+  color: var(--text2);
+}
+
+.meta-row {
+  display: flex;
+  gap: 16px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text2);
+}
+
+/* Collapsible sections */
+.collapsible {
+  margin-top: 16px;
+}
+
+.collapsible-header {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--accent);
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.collapsible-header::before {
+  content: '\25B6';
+  font-size: 10px;
+  transition: transform 0.2s;
+}
+
+.collapsible.open .collapsible-header::before { transform: rotate(90deg); }
+
+.collapsible-body {
+  display: none;
+  margin-top: 10px;
+}
+
+.collapsible.open .collapsible-body { display: block; }
+
+.reasoning-step {
+  padding: 8px 12px;
+  border-left: 2px solid var(--border);
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.reasoning-step .step-agent {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.reasoning-step .step-action { color: var(--text2); }
+.reasoning-step .step-result { margin-top: 4px; }
+
+.source-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.source-item:last-child { border-bottom: none; }
+
+.source-badge {
+  background: var(--surface2);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  white-space: nowrap;
+  color: var(--accent);
+}
+
+.source-score { color: var(--text2); white-space: nowrap; }
+
+/* Graph Tab */
+.graph-controls {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.graph-controls select,
+.graph-controls input {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.graph-controls button {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  padding: 8px 16px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.entity-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.entity-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.entity-card:hover { border-color: var(--accent); }
+
+.entity-name { font-size: 14px; font-weight: 500; }
+
+.entity-type {
+  font-size: 11px;
+  color: var(--accent);
+  background: var(--surface2);
+  padding: 2px 8px;
+  border-radius: 4px;
+  display: inline-block;
+  margin-top: 6px;
+}
+
+.traverse-result {
+  margin-top: 20px;
+}
+
+.traverse-path {
+  padding: 8px 14px;
+  border-left: 2px solid var(--accent);
+  margin-bottom: 8px;
+  font-size: 13px;
+  background: var(--surface);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+/* Sessions Tab */
+.session-list { display: flex; flex-direction: column; gap: 8px; }
+
+.session-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  cursor: pointer;
+  transition: border-color 0.2s;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.session-card:hover { border-color: var(--accent); }
+
+.session-title { font-size: 14px; font-weight: 500; }
+
+.session-meta {
+  font-size: 12px;
+  color: var(--text2);
+  margin-top: 4px;
+}
+
+.session-delete {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--red);
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.session-delete:hover { background: rgba(248, 113, 113, 0.1); }
+
+.message-list {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.message-item {
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  line-height: 1.6;
+  max-width: 80%;
+}
+
+.message-item.user {
+  background: var(--accent2);
+  color: #fff;
+  align-self: flex-end;
+}
+
+.message-item.assistant {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  align-self: flex-start;
+}
+
+.message-time {
+  font-size: 11px;
+  color: var(--text2);
+  margin-top: 4px;
+}
+
+.back-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  margin-bottom: 16px;
+}
+
+.back-btn:hover { border-color: var(--accent); }
+
+/* Health Tab */
+.health-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.health-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  text-align: center;
+}
+
+.health-card .svc-name {
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 10px;
+}
+
+.health-indicator {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 6px;
+}
+
+.health-indicator.ok { background: var(--green); }
+.health-indicator.unavailable { background: var(--red); }
+.health-indicator.not_checked { background: var(--yellow); }
+
+.health-status {
+  font-size: 13px;
+  color: var(--text2);
+}
+
+.health-refresh {
+  margin-bottom: 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.health-refresh button {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.health-overall {
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Empty state */
+.empty-state {
+  text-align: center;
+  color: var(--text2);
+  padding: 40px;
+  font-size: 14px;
+}
+
+/* Loading spinner */
+.spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.loading-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text2);
+  font-size: 13px;
+}
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span>Hybrid RAG</span> System</h1>
+  <div class="ws-status">
+    <div class="ws-dot" id="wsDot"></div>
+    <span id="wsLabel">WebSocket 연결 중...</span>
+  </div>
+</header>
+
+<nav>
+  <button class="active" data-tab="query">Query</button>
+  <button data-tab="graph">Graph</button>
+  <button data-tab="sessions">Sessions</button>
+  <button data-tab="health">Health</button>
+</nav>
+
+<!-- Query Tab -->
+<div class="tab active" id="tab-query">
+  <div class="query-input-area">
+    <textarea id="queryInput" placeholder="질문을 입력하세요..." rows="1"></textarea>
+    <button id="queryBtn" onclick="sendQuery()">전송</button>
+  </div>
+
+  <div class="progress-area" id="progressArea">
+    <div class="progress-steps">
+      <div class="step-item" id="step-planning">
+        <div class="step-dot"></div>
+        <span>계획 수립</span>
+      </div>
+      <div class="step-item" id="step-retrieving">
+        <div class="step-dot"></div>
+        <span>정보 검색</span>
+      </div>
+      <div class="step-item" id="step-reasoning">
+        <div class="step-dot"></div>
+        <span>추론 검증</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="queryResults"></div>
+</div>
+
+<!-- Graph Tab -->
+<div class="tab" id="tab-graph">
+  <div class="graph-controls">
+    <select id="nodeTypeFilter">
+      <option value="">전체 타입</option>
+      <option value="metric">metric</option>
+      <option value="event">event</option>
+      <option value="entity">entity</option>
+      <option value="document">document</option>
+      <option value="concept">concept</option>
+    </select>
+    <input type="number" id="entityLimit" value="50" min="1" max="200" placeholder="개수">
+    <button onclick="loadEntities()">엔티티 조회</button>
+  </div>
+  <div id="graphContent">
+    <div class="empty-state">엔티티 조회 버튼을 클릭하세요</div>
+  </div>
+</div>
+
+<!-- Sessions Tab -->
+<div class="tab" id="tab-sessions">
+  <div id="sessionsContent">
+    <div class="loading-inline"><div class="spinner"></div> 세션 목록 로딩 중...</div>
+  </div>
+</div>
+
+<!-- Health Tab -->
+<div class="tab" id="tab-health">
+  <div class="health-refresh">
+    <div class="health-overall" id="healthOverall"></div>
+    <button onclick="loadHealth()">새로고침</button>
+  </div>
+  <div id="healthContent">
+    <div class="loading-inline"><div class="spinner"></div> 상태 확인 중...</div>
+  </div>
+</div>
+
+<script>
+const API = '/api/v1';
+let ws = null;
+let currentSessionId = null;
+let queryResolve = null;
+
+// --- Tab Navigation ---
+document.querySelectorAll('nav button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+
+    if (btn.dataset.tab === 'health') loadHealth();
+    if (btn.dataset.tab === 'sessions') loadSessions();
+  });
+});
+
+// --- WebSocket ---
+function connectWS() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${proto}//${location.host}/ws/query`);
+
+  ws.onopen = () => {
+    document.getElementById('wsDot').classList.add('connected');
+    document.getElementById('wsLabel').textContent = 'WebSocket 연결됨';
+  };
+
+  ws.onclose = () => {
+    document.getElementById('wsDot').classList.remove('connected');
+    document.getElementById('wsLabel').textContent = 'WebSocket 재연결 중...';
+    setTimeout(connectWS, 3000);
+  };
+
+  ws.onerror = () => {
+    document.getElementById('wsDot').classList.remove('connected');
+    document.getElementById('wsLabel').textContent = 'WebSocket 오류';
+  };
+
+  ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+    handleWSMessage(msg);
+  };
+}
+
+function handleWSMessage(msg) {
+  if (msg.type === 'progress') {
+    const steps = ['planning', 'retrieving', 'reasoning'];
+    const idx = steps.indexOf(msg.step);
+    steps.forEach((s, i) => {
+      const el = document.getElementById('step-' + s);
+      el.classList.remove('active', 'done');
+      if (i < idx) el.classList.add('done');
+      else if (i === idx) el.classList.add('active');
+    });
+  } else if (msg.type === 'result') {
+    document.getElementById('progressArea').classList.remove('active');
+    ['planning', 'retrieving', 'reasoning'].forEach(s => {
+      document.getElementById('step-' + s).classList.add('done');
+      document.getElementById('step-' + s).classList.remove('active');
+    });
+    renderResult(msg.data);
+    document.getElementById('queryBtn').disabled = false;
+  } else if (msg.type === 'error') {
+    document.getElementById('progressArea').classList.remove('active');
+    renderError(msg.message);
+    document.getElementById('queryBtn').disabled = false;
+  }
+}
+
+// --- Query ---
+function sendQuery() {
+  const input = document.getElementById('queryInput');
+  const text = input.value.trim();
+  if (!text) return;
+
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    renderError('WebSocket이 연결되지 않았습니다. 잠시 후 다시 시도하세요.');
+    return;
+  }
+
+  document.getElementById('queryBtn').disabled = true;
+  document.getElementById('progressArea').classList.add('active');
+  ['planning', 'retrieving', 'reasoning'].forEach(s => {
+    const el = document.getElementById('step-' + s);
+    el.classList.remove('active', 'done');
+  });
+
+  ws.send(JSON.stringify({
+    query: text,
+    session_id: currentSessionId,
+    options: { include_reasoning: true }
+  }));
+}
+
+document.getElementById('queryInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendQuery();
+  }
+});
+
+// Auto-resize textarea
+document.getElementById('queryInput').addEventListener('input', function() {
+  this.style.height = 'auto';
+  this.style.height = Math.min(this.scrollHeight, 150) + 'px';
+});
+
+function renderResult(data) {
+  const container = document.getElementById('queryResults');
+
+  const confidenceColor = data.confidence >= 0.7 ? 'var(--green)' :
+                           data.confidence >= 0.4 ? 'var(--yellow)' : 'var(--red)';
+
+  let reasoningHTML = '';
+  if (data.reasoning_chain && data.reasoning_chain.length > 0) {
+    const stepsHTML = data.reasoning_chain.map(s =>
+      `<div class="reasoning-step">
+        <span class="step-agent">[${esc(s.agent || 'step ' + s.step)}]</span>
+        <span class="step-action">${esc(s.action || '')}</span>
+        <div class="step-result">${esc(s.result || '')}</div>
+      </div>`
+    ).join('');
+
+    reasoningHTML = `
+      <div class="collapsible">
+        <div class="collapsible-header" onclick="this.parentElement.classList.toggle('open')">
+          추론 과정 (${data.reasoning_chain.length}단계)
+        </div>
+        <div class="collapsible-body">${stepsHTML}</div>
+      </div>`;
+  }
+
+  let sourcesHTML = '';
+  if (data.sources && data.sources.length > 0) {
+    const items = data.sources.map(s =>
+      `<div class="source-item">
+        <span class="source-badge">${esc(s.source_type)}</span>
+        <span style="flex:1">${esc(s.content || s.source_id)}</span>
+        <span class="source-score">${(s.relevance_score * 100).toFixed(0)}%</span>
+      </div>`
+    ).join('');
+
+    sourcesHTML = `
+      <div class="collapsible">
+        <div class="collapsible-header" onclick="this.parentElement.classList.toggle('open')">
+          참조 소스 (${data.sources.length}건)
+        </div>
+        <div class="collapsible-body">${items}</div>
+      </div>`;
+  }
+
+  let warningsHTML = '';
+  if (data.warnings && data.warnings.length > 0) {
+    warningsHTML = `<div class="meta-row" style="color:var(--orange)">
+      ${data.warnings.map(w => esc(w)).join(' / ')}
+    </div>`;
+  }
+
+  const card = document.createElement('div');
+  card.className = 'result-card';
+  card.innerHTML = `
+    <div class="answer-text">${esc(data.answer)}</div>
+    <div class="confidence-bar-container">
+      <div class="confidence-bar">
+        <div class="confidence-fill" style="width:${data.confidence * 100}%;background:${confidenceColor}"></div>
+      </div>
+      <span class="confidence-label">신뢰도 ${(data.confidence * 100).toFixed(0)}%</span>
+    </div>
+    <div class="meta-row">
+      <span>처리 시간: ${data.processing_time_ms ? data.processing_time_ms.toFixed(0) + 'ms' : '-'}</span>
+      ${data.session_id ? '<span>세션: ' + esc(data.session_id.slice(0, 8)) + '...</span>' : ''}
+    </div>
+    ${warningsHTML}
+    ${reasoningHTML}
+    ${sourcesHTML}
+  `;
+
+  container.prepend(card);
+}
+
+function renderError(message) {
+  const container = document.getElementById('queryResults');
+  const card = document.createElement('div');
+  card.className = 'result-card';
+  card.style.borderColor = 'var(--red)';
+  card.innerHTML = `<div style="color:var(--red)">${esc(message)}</div>`;
+  container.prepend(card);
+}
+
+// --- Graph ---
+async function loadEntities() {
+  const nodeType = document.getElementById('nodeTypeFilter').value;
+  const limit = document.getElementById('entityLimit').value || 50;
+  const content = document.getElementById('graphContent');
+  content.innerHTML = '<div class="loading-inline"><div class="spinner"></div> 엔티티 로딩 중...</div>';
+
+  try {
+    let url = `${API}/graph/entities?limit=${limit}`;
+    if (nodeType) url += `&node_type=${nodeType}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const entities = await res.json();
+
+    if (entities.length === 0) {
+      content.innerHTML = '<div class="empty-state">엔티티가 없습니다</div>';
+      return;
+    }
+
+    content.innerHTML = '<div class="entity-list">' +
+      entities.map(e =>
+        `<div class="entity-card" onclick="traverseEntity('${esc(e.id)}', '${esc(e.name)}')">
+          <div class="entity-name">${esc(e.name)}</div>
+          <div class="entity-type">${esc(e.type)}</div>
+        </div>`
+      ).join('') + '</div><div id="traverseResult"></div>';
+  } catch (err) {
+    content.innerHTML = `<div class="empty-state" style="color:var(--red)">로딩 실패: ${esc(err.message)}</div>`;
+  }
+}
+
+async function traverseEntity(nodeId, nodeName) {
+  const result = document.getElementById('traverseResult');
+  if (!result) return;
+  result.innerHTML = `<div class="loading-inline" style="margin-top:20px"><div class="spinner"></div> "${nodeName}" 관계 탐색 중...</div>`;
+
+  try {
+    const res = await fetch(`${API}/graph/entities/${encodeURIComponent(nodeId)}/traverse?max_hops=3`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const paths = await res.json();
+
+    if (paths.length === 0) {
+      result.innerHTML = '<div class="traverse-result"><div class="empty-state">연결된 관계가 없습니다</div></div>';
+      return;
+    }
+
+    result.innerHTML = '<div class="traverse-result">' +
+      `<h3 style="font-size:14px;color:var(--text2);margin-bottom:12px">"${esc(nodeName)}" 관계 그래프 (${paths.length}건)</h3>` +
+      paths.map(p =>
+        `<div class="traverse-path">${esc(p.description)}</div>`
+      ).join('') + '</div>';
+  } catch (err) {
+    result.innerHTML = `<div class="empty-state" style="color:var(--red)">탐색 실패: ${esc(err.message)}</div>`;
+  }
+}
+
+// --- Sessions ---
+let sessionView = 'list';
+
+async function loadSessions() {
+  if (sessionView === 'detail') return;
+  const content = document.getElementById('sessionsContent');
+  content.innerHTML = '<div class="loading-inline"><div class="spinner"></div> 세션 목록 로딩 중...</div>';
+
+  try {
+    const res = await fetch(`${API}/sessions`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const sessions = await res.json();
+
+    if (sessions.length === 0) {
+      content.innerHTML = '<div class="empty-state">세션이 없습니다</div>';
+      return;
+    }
+
+    content.innerHTML = '<div class="session-list">' +
+      sessions.map(s => {
+        const date = new Date(s.created_at).toLocaleString('ko-KR');
+        return `<div class="session-card">
+          <div onclick="viewSession('${esc(s.id)}')" style="flex:1;cursor:pointer">
+            <div class="session-title">${esc(s.title || s.id.slice(0, 12) + '...')}</div>
+            <div class="session-meta">${date} &middot; 메시지 ${s.message_count}건</div>
+          </div>
+          <button class="session-delete" onclick="event.stopPropagation();deleteSession('${esc(s.id)}')">삭제</button>
+        </div>`;
+      }).join('') + '</div>';
+  } catch (err) {
+    content.innerHTML = `<div class="empty-state" style="color:var(--red)">로딩 실패: ${esc(err.message)}</div>`;
+  }
+}
+
+async function viewSession(sessionId) {
+  sessionView = 'detail';
+  const content = document.getElementById('sessionsContent');
+  content.innerHTML = '<div class="loading-inline"><div class="spinner"></div> 메시지 로딩 중...</div>';
+
+  try {
+    const res = await fetch(`${API}/sessions/${sessionId}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const messages = await res.json();
+
+    let html = `<button class="back-btn" onclick="sessionView='list';loadSessions()">&#8592; 목록으로</button>`;
+    html += `<div style="font-size:13px;color:var(--text2);margin-bottom:12px">세션: ${esc(sessionId.slice(0, 12))}...</div>`;
+
+    if (messages.length === 0) {
+      html += '<div class="empty-state">메시지가 없습니다</div>';
+    } else {
+      html += '<div class="message-list">';
+      messages.forEach(m => {
+        const time = m.created_at ? new Date(m.created_at).toLocaleString('ko-KR') : '';
+        html += `<div class="message-item ${m.role}">
+          <div>${esc(m.content)}</div>
+          ${m.confidence != null ? `<div class="message-time">신뢰도: ${(m.confidence * 100).toFixed(0)}%</div>` : ''}
+          <div class="message-time">${time}</div>
+        </div>`;
+      });
+      html += '</div>';
+    }
+
+    content.innerHTML = html;
+  } catch (err) {
+    content.innerHTML = `<button class="back-btn" onclick="sessionView='list';loadSessions()">&#8592; 목록으로</button>
+      <div class="empty-state" style="color:var(--red)">로딩 실패: ${esc(err.message)}</div>`;
+  }
+}
+
+async function deleteSession(sessionId) {
+  if (!confirm('이 세션을 삭제하시겠습니까?')) return;
+  try {
+    const res = await fetch(`${API}/sessions/${sessionId}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    loadSessions();
+  } catch (err) {
+    alert('삭제 실패: ' + err.message);
+  }
+}
+
+// --- Health ---
+async function loadHealth() {
+  const content = document.getElementById('healthContent');
+  const overall = document.getElementById('healthOverall');
+  content.innerHTML = '<div class="loading-inline"><div class="spinner"></div> 상태 확인 중...</div>';
+
+  try {
+    const res = await fetch(`${API}/health`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+
+    const overallClass = data.status === 'ok' ? 'ok' : 'unavailable';
+    overall.innerHTML = `<span class="health-indicator ${overallClass}"></span> 시스템: ${esc(data.status)} (v${esc(data.version)})`;
+
+    const svcNames = {
+      postgresql: 'PostgreSQL',
+      influxdb: 'InfluxDB',
+      neo4j: 'Neo4j',
+      milvus: 'Milvus',
+      redis: 'Redis'
+    };
+
+    content.innerHTML = '<div class="health-grid">' +
+      Object.entries(data.services).map(([key, status]) =>
+        `<div class="health-card">
+          <div class="svc-name">${svcNames[key] || key}</div>
+          <span class="health-indicator ${status}"></span>
+          <span class="health-status">${esc(status)}</span>
+        </div>`
+      ).join('') + '</div>';
+  } catch (err) {
+    overall.innerHTML = '';
+    content.innerHTML = `<div class="empty-state" style="color:var(--red)">헬스 체크 실패: ${esc(err.message)}</div>`;
+  }
+}
+
+// --- Helpers ---
+function esc(str) {
+  if (str == null) return '';
+  const div = document.createElement('div');
+  div.textContent = String(str);
+  return div.innerHTML;
+}
+
+// --- Init ---
+connectWS();
+loadHealth();
+</script>
+</body>
+</html>
