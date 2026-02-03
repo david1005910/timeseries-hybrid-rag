@@ -53,4 +53,7 @@ async def websocket_query(websocket: WebSocket) -> None:
         logger.info("websocket_disconnected")
     except Exception as e:
         logger.error("websocket_error", error=str(e))
-        await websocket.send_json({"type": "error", "message": str(e)})
+        error_msg = str(e)
+        if "AuthenticationError" in error_msg or "No LLM provider configured" in error_msg:
+            error_msg = "LLM API 인증 실패: .env 파일에 유효한 ANTHROPIC_API_KEY 또는 OPENAI_API_KEY를 설정하세요."
+        await websocket.send_json({"type": "error", "message": error_msg})

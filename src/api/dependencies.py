@@ -2,17 +2,19 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Any
 
 from fastapi import Header
 
-from src.data.repositories.graph import GraphRepository
+from src.config.settings import get_settings
 from src.data.repositories.session import SessionRepository
-from src.data.repositories.timeseries import TimeseriesRepository
-from src.data.repositories.vector import VectorRepository
 from src.llm.client import LLMClient
-from src.llm.embeddings import EmbeddingService
 from src.orchestration.coordinator import AgentCoordinator
 from src.orchestration.session_manager import SessionManager
+
+
+def _is_demo_mode() -> bool:
+    return get_settings().demo_mode
 
 
 @lru_cache
@@ -21,22 +23,38 @@ def get_llm_client() -> LLMClient:
 
 
 @lru_cache
-def get_embedding_service() -> EmbeddingService:
+def get_embedding_service() -> Any:
+    if _is_demo_mode():
+        from src.data.repositories.demo import DemoEmbeddingService
+        return DemoEmbeddingService()
+    from src.llm.embeddings import EmbeddingService
     return EmbeddingService()
 
 
 @lru_cache
-def get_timeseries_repo() -> TimeseriesRepository:
+def get_timeseries_repo() -> Any:
+    if _is_demo_mode():
+        from src.data.repositories.demo import DemoTimeseriesRepository
+        return DemoTimeseriesRepository()
+    from src.data.repositories.timeseries import TimeseriesRepository
     return TimeseriesRepository()
 
 
 @lru_cache
-def get_vector_repo() -> VectorRepository:
+def get_vector_repo() -> Any:
+    if _is_demo_mode():
+        from src.data.repositories.demo import DemoVectorRepository
+        return DemoVectorRepository()
+    from src.data.repositories.vector import VectorRepository
     return VectorRepository()
 
 
 @lru_cache
-def get_graph_repo() -> GraphRepository:
+def get_graph_repo() -> Any:
+    if _is_demo_mode():
+        from src.data.repositories.demo import DemoGraphRepository
+        return DemoGraphRepository()
+    from src.data.repositories.graph import GraphRepository
     return GraphRepository()
 
 

@@ -139,25 +139,17 @@ class TestLLMClient:
     async def test_generate_raises_when_no_provider(
         self, mock_get_settings: MagicMock
     ) -> None:
-        """generate() should raise RetryError (wrapping RuntimeError) when no provider configured.
+        """generate() should raise RuntimeError immediately when no provider configured.
 
-        The @retry decorator retries 3 times and then wraps the final
-        RuntimeError in a tenacity.RetryError.
+        RuntimeError is not retried since it's a configuration issue, not a transient failure.
         """
         mock_get_settings.return_value = _make_settings(
             anthropic_api_key="", openai_api_key=""
         )
 
         client = LLMClient()
-        with pytest.raises(RetryError) as exc_info:
+        with pytest.raises(RuntimeError, match="No LLM provider configured"):
             await client.generate(prompt="에러 테스트")
-
-        # The underlying cause should be our RuntimeError
-        last_attempt = exc_info.value.last_attempt
-        assert last_attempt.failed
-        underlying = last_attempt.exception()
-        assert isinstance(underlying, RuntimeError)
-        assert "No LLM provider configured" in str(underlying)
 
     @patch("src.llm.client.get_settings")
     @patch("src.llm.client.openai.AsyncOpenAI")

@@ -6,7 +6,7 @@ from typing import Any, AsyncIterator
 
 import anthropic
 import openai
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_not_exception_type, stop_after_attempt, wait_exponential
 
 from src.config.settings import get_settings
 from src.utils.logging import get_logger
@@ -22,12 +22,27 @@ class LLMClient:
         self._anthropic: anthropic.AsyncAnthropic | None = None
         self._openai: openai.AsyncOpenAI | None = None
 
-        if settings.anthropic_api_key:
+        if settings.anthropic_api_key and self._is_real_key(settings.anthropic_api_key):
             self._anthropic = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
-        if settings.openai_api_key:
+        if settings.openai_api_key and self._is_real_key(settings.openai_api_key):
             self._openai = openai.AsyncOpenAI(api_key=settings.openai_api_key)
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, max=30))
+    @staticmethod
+    def _is_real_key(key: str) -> bool:
+        """플레이스홀더가 아닌 실제 API 키인지 검증."""
+        if not key:
+            return False
+        lower = key.lower()
+        placeholder_prefixes = ("your-", "placeholder", "change-me", "insert-", "xxx")
+        return not any(lower.startswith(p) for p in placeholder_prefixes)
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, max=30),
+        retry=retry_if_not_exception_type(
+            (RuntimeError, anthropic.AuthenticationError, openai.AuthenticationError)
+        ),
+    )
     async def generate(
         self,
         prompt: str,
